@@ -72,10 +72,15 @@ function runSchemaMigrations(database, callback) {
   function fixAudioTracksSchema(cb) {
     database.all('PRAGMA table_info(audio_tracks)', [], (err, cols) => {
       if (err || !cols || cols.length === 0) return cb(); // table doesn't exist yet
-      // Check if 'title' column has NOT NULL constraint (notnull=1)
-      const titleCol = cols.find(c => c.name === 'title');
+      // Check if any column has NOT NULL constraint that shouldn't
+      // Old schema had: title NOT NULL, filename NOT NULL, etc.
+      // New schema should have all columns nullable
+      const badNotNullCols = ['title', 'filename', 'track_name', 'file_name'];
+      const hasBadConstraint = cols.some(c => badNotNullCols.includes(c.name) && c.notnull === 1);
       const nameCol = cols.find(c => c.name === 'name');
-      const needsFix = titleCol && titleCol.notnull === 1 && !nameCol;
+      const filenameCol = cols.find(c => c.name === 'filename');
+      // Also need to recreate if 'filename' column exists with NOT NULL (old schema artifact)
+      const needsFix = hasBadConstraint || (filenameCol && filenameCol.notnull === 1);
       if (!needsFix) { console.log('audio_tracks schema OK, no recreate needed'); return cb(); }
       console.log('Recreating audio_tracks table to fix NOT NULL on title...');
       database.serialize(() => {
