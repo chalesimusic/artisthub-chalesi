@@ -33,55 +33,75 @@ const RENDER = process.env.RENDER === 'true' || !!process.env.RENDER_EXTERNAL_UR
 // ─── SCHEMA MIGRATION ───────────────────────────────────────────
 // Runs after DB is opened to handle old schemas on persistent disk
 function runSchemaMigrations(database, callback) {
-  // Check what columns exist in the users table
-  database.all("PRAGMA table_info(users)", [], (err, cols) => {
-    if (err || !cols || cols.length === 0) {
-      // Table doesn't exist yet, will be created by CREATE TABLE IF NOT EXISTS
-      return callback();
-    }
-    const colNames = cols.map(c => c.name);
-    console.log('Users table columns:', colNames.join(', '));
-    
-    const tasks = [];
-    
-    // If password_hash column doesn't exist, add it
-    if (!colNames.includes('password_hash')) {
-      tasks.push(cb => {
-        // Check if there's a 'password' column to copy from
-        if (colNames.includes('password')) {
-          database.run('ALTER TABLE users ADD COLUMN password_hash TEXT', [], () => {
-            database.run('UPDATE users SET password_hash = password', [], () => {
-              console.log('Migrated: copied password -> password_hash');
-              cb();
-            });
-          });
-        } else {
-          database.run('ALTER TABLE users ADD COLUMN password_hash TEXT', [], () => {
-            console.log('Migrated: added password_hash column');
-            cb();
-          });
-        }
+  // Helper: add a column to a table if it doesn't exist
+  function addColIfMissing(table, col, colDef, cb) {
+    database.all(`PRAGMA table_info(${table})`, [], (err, cols) => {
+      if (err || !cols || cols.length === 0) return cb(); // table doesn't exist yet
+      const names = cols.map(c => c.name);
+      if (names.includes(col)) return cb(); // already exists
+      database.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${colDef}`, [], (e) => {
+        if (e) console.warn(`Migration warning (${table}.${col}):`, e.message);
+        else console.log(`Migrated: added ${table}.${col}`);
+        cb();
       });
-    }
-    
-    // If name column doesn't exist, add it
-    if (!colNames.includes('name')) {
-      tasks.push(cb => {
-        database.run("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT 'Admin'", [], () => {
-          console.log('Migrated: added name column');
+    });
+  }
+
+  // Helper: rename a column by adding new col + copying data (SQLite <3.25 workaround)
+  function copyColIfMissing(table, fromCol, toCol, colDef, cb) {
+    database.all(`PRAGMA table_info(${table})`, [], (err, cols) => {
+      if (err || !cols || cols.length === 0) return cb();
+      const names = cols.map(c => c.name);
+      if (names.includes(toCol)) return cb(); // already exists
+      if (!names.includes(fromCol)) {
+        // Neither exists — just add the new column
+        return addColIfMissing(table, toCol, colDef, cb);
+      }
+      database.run(`ALTER TABLE ${table} ADD COLUMN ${toCol} ${colDef}`, [], () => {
+        database.run(`UPDATE ${table} SET ${toCol} = ${fromCol}`, [], () => {
+          console.log(`Migrated: copied ${table}.${fromCol} -> ${toCol}`);
           cb();
         });
       });
+    });
+  }
+
+  // Run all migrations in sequence
+  const migrations = [
+    // users table
+    cb => copyColIfMissing('users', 'password', 'password_hash', 'TEXT', cb),
+    cb => addColIfMissing('users', 'name', "TEXT NOT NULL DEFAULT 'Admin'", cb),
+    cb => addColIfMissing('users', 'role', "TEXT DEFAULT 'admin'", cb),
+    // audio_tracks table — old schema may have used 'title' instead of 'name'
+    cb => copyColIfMissing('audio_tracks', 'title', 'name', 'TEXT', cb),
+    cb => addColIfMissing('audio_tracks', 'name', 'TEXT', cb),
+    cb => addColIfMissing('audio_tracks', 'artist_id', 'INTEGER', cb),
+    cb => addColIfMissing('audio_tracks', 'file_path', 'TEXT', cb),
+    cb => addColIfMissing('audio_tracks', 'duration', 'REAL DEFAULT 0', cb),
+    cb => addColIfMissing('audio_tracks', 'format', "TEXT DEFAULT 'mp3'", cb),
+    cb => addColIfMissing('audio_tracks', 'size_bytes', 'INTEGER DEFAULT 0', cb),
+    cb => addColIfMissing('audio_tracks', 'waveform_data', 'TEXT', cb),
+    cb => addColIfMissing('audio_tracks', 'upload_date', "TEXT DEFAULT (datetime('now'))", cb),
+    // artists table
+    cb => addColIfMissing('artists', 'persona', 'TEXT', cb),
+    cb => addColIfMissing('artists', 'avatar_color', "TEXT DEFAULT '#e2b34b'", cb),
+    cb => addColIfMissing('artists', 'monthly_listeners', 'INTEGER DEFAULT 0', cb),
+    // posts table
+    cb => addColIfMissing('posts', 'type', "TEXT DEFAULT 'image'", cb),
+    cb => addColIfMissing('posts', 'video_path', 'TEXT', cb),
+    cb => addColIfMissing('posts', 'thumbnail_path', 'TEXT', cb),
+    cb => addColIfMissing('posts', 'hashtags', 'TEXT', cb),
+  ];
+
+  let i = 0;
+  function next() {
+    if (i >= migrations.length) {
+      console.log('Schema migrations complete.');
+      return callback();
     }
-    
-    // Run all migration tasks sequentially
-    let i = 0;
-    function next() {
-      if (i >= tasks.length) return callback();
-      tasks[i++](next);
-    }
-    next();
-  });
+    migrations[i++](next);
+  }
+  next();
 }
 
 // ─── SETUP DIRECTORIES ────────────────────────────────────────────
