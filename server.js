@@ -425,6 +425,49 @@ app.post('/api/debug/reset-admin', (req, res) => {
     });
 });
 
+// Emergency schema migration endpoint - fixes all tables on persistent disk
+app.post('/api/debug/migrate-schema', (req, res) => {
+  const { secret } = req.body;
+  if (secret !== 'chalesi-reset-2024') return res.status(403).json({ error: 'Forbidden' });
+  const results = [];
+  const migrations = [
+    // audio_tracks
+    "ALTER TABLE audio_tracks ADD COLUMN name TEXT",
+    "UPDATE audio_tracks SET name = title WHERE name IS NULL AND title IS NOT NULL",
+    "ALTER TABLE audio_tracks ADD COLUMN artist_id INTEGER",
+    "ALTER TABLE audio_tracks ADD COLUMN file_path TEXT",
+    "ALTER TABLE audio_tracks ADD COLUMN duration REAL DEFAULT 0",
+    "ALTER TABLE audio_tracks ADD COLUMN format TEXT DEFAULT 'mp3'",
+    "ALTER TABLE audio_tracks ADD COLUMN size_bytes INTEGER DEFAULT 0",
+    "ALTER TABLE audio_tracks ADD COLUMN waveform_data TEXT",
+    "ALTER TABLE audio_tracks ADD COLUMN upload_date TEXT DEFAULT (datetime('now'))",
+    // artists
+    "ALTER TABLE artists ADD COLUMN persona TEXT",
+    "ALTER TABLE artists ADD COLUMN avatar_color TEXT DEFAULT '#e2b34b'",
+    "ALTER TABLE artists ADD COLUMN monthly_listeners INTEGER DEFAULT 0",
+    // posts
+    "ALTER TABLE posts ADD COLUMN type TEXT DEFAULT 'image'",
+    "ALTER TABLE posts ADD COLUMN video_path TEXT",
+    "ALTER TABLE posts ADD COLUMN thumbnail_path TEXT",
+    "ALTER TABLE posts ADD COLUMN hashtags TEXT",
+    // users
+    "ALTER TABLE users ADD COLUMN password_hash TEXT",
+    "UPDATE users SET password_hash = password WHERE password_hash IS NULL AND password IS NOT NULL",
+    "ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT 'Admin'",
+    "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'admin'",
+  ];
+  let i = 0;
+  function next() {
+    if (i >= migrations.length) return res.json({ success: true, results });
+    const sql = migrations[i++];
+    db.run(sql, [], (err) => {
+      results.push({ sql: sql.substring(0, 60), ok: !err, err: err ? err.message : null });
+      next();
+    });
+  }
+  next();
+});
+
 // ── AUTH ──────────────────────────────────────────────────────────
 app.post('/api/auth/register', (req, res) => {
   const { email, password, name } = req.body;
