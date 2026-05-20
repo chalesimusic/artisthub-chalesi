@@ -314,6 +314,34 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', version: '2.0.0', timestamp: new Date().toISOString(), render: RENDER });
 });
 
+// Debug: show users (remove after fixing)
+app.get('/api/debug/users', (req, res) => {
+  db.all('SELECT id, email, name, role, CASE WHEN password_hash IS NULL THEN "NULL" WHEN length(password_hash) < 5 THEN "SHORT:" || password_hash ELSE "OK:" || substr(password_hash,1,10) || "..." END as hash_status FROM users', [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ users: rows });
+  });
+});
+
+// Emergency password reset endpoint
+app.post('/api/debug/reset-admin', (req, res) => {
+  const { secret } = req.body;
+  if (secret !== 'chalesi-reset-2024') return res.status(403).json({ error: 'Forbidden' });
+  const hash = bcrypt.hashSync('Malaven757!!', 10);
+  db.run('UPDATE users SET password_hash = ?, name = ?, role = ? WHERE email = ?',
+    [hash, 'Chalesi Admin', 'admin', 'chalesimusic@gmail.com'], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) {
+        db.run('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
+          ['chalesimusic@gmail.com', hash, 'Chalesi Admin', 'admin'], function(err2) {
+            if (err2) return res.status(500).json({ error: err2.message });
+            res.json({ success: true, action: 'inserted', email: 'chalesimusic@gmail.com' });
+          });
+      } else {
+        res.json({ success: true, action: 'updated', changes: this.changes, email: 'chalesimusic@gmail.com' });
+      }
+    });
+});
+
 // ── AUTH ──────────────────────────────────────────────────────────
 app.post('/api/auth/register', (req, res) => {
   const { email, password, name } = req.body;
