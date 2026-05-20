@@ -30,6 +30,60 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'artisthub.d
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 const RENDER = process.env.RENDER === 'true' || !!process.env.RENDER_EXTERNAL_URL;
 
+// ─── SCHEMA MIGRATION ───────────────────────────────────────────
+// Runs after DB is opened to handle old schemas on persistent disk
+function runSchemaMigrations(database, callback) {
+  // Check what columns exist in the users table
+  database.all("PRAGMA table_info(users)", [], (err, cols) => {
+    if (err || !cols || cols.length === 0) {
+      // Table doesn't exist yet, will be created by CREATE TABLE IF NOT EXISTS
+      return callback();
+    }
+    const colNames = cols.map(c => c.name);
+    console.log('Users table columns:', colNames.join(', '));
+    
+    const tasks = [];
+    
+    // If password_hash column doesn't exist, add it
+    if (!colNames.includes('password_hash')) {
+      tasks.push(cb => {
+        // Check if there's a 'password' column to copy from
+        if (colNames.includes('password')) {
+          database.run('ALTER TABLE users ADD COLUMN password_hash TEXT', [], () => {
+            database.run('UPDATE users SET password_hash = password', [], () => {
+              console.log('Migrated: copied password -> password_hash');
+              cb();
+            });
+          });
+        } else {
+          database.run('ALTER TABLE users ADD COLUMN password_hash TEXT', [], () => {
+            console.log('Migrated: added password_hash column');
+            cb();
+          });
+        }
+      });
+    }
+    
+    // If name column doesn't exist, add it
+    if (!colNames.includes('name')) {
+      tasks.push(cb => {
+        database.run("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT 'Admin'", [], () => {
+          console.log('Migrated: added name column');
+          cb();
+        });
+      });
+    }
+    
+    // Run all migration tasks sequentially
+    let i = 0;
+    function next() {
+      if (i >= tasks.length) return callback();
+      tasks[i++](next);
+    }
+    next();
+  });
+}
+
 // ─── SETUP DIRECTORIES ────────────────────────────────────────────
 // Ensure DB directory exists
 const dbDir = path.dirname(DB_PATH);
@@ -314,11 +368,20 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', version: '2.0.0', timestamp: new Date().toISOString(), render: RENDER });
 });
 
-// Debug: show users (remove after fixing)
+// Debug: show users and schema
 app.get('/api/debug/users', (req, res) => {
-  db.all('SELECT id, email, name, role, CASE WHEN password_hash IS NULL THEN "NULL" WHEN length(password_hash) < 5 THEN "SHORT:" || password_hash ELSE "OK:" || substr(password_hash,1,10) || "..." END as hash_status FROM users', [], (err, rows) => {
+  db.all('PRAGMA table_info(users)', [], (err, cols) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ users: rows });
+    const colNames = cols ? cols.map(c => c.name) : [];
+    const hashCol = colNames.includes('password_hash') ? 'password_hash' : (colNames.includes('password') ? 'password' : null);
+    if (!hashCol) {
+      return res.json({ schema: colNames, users: [], note: 'No password column found' });
+    }
+    const sql = `SELECT id, email, ${colNames.includes('name') ? 'name' : "'unknown' as name"}, ${colNames.includes('role') ? 'role' : "'unknown' as role"}, CASE WHEN ${hashCol} IS NULL THEN 'NULL' WHEN length(${hashCol}) < 5 THEN 'SHORT:' || ${hashCol} ELSE 'OK:' || substr(${hashCol},1,10) || '...' END as hash_status FROM users`;
+    db.all(sql, [], (err2, rows) => {
+      if (err2) return res.status(500).json({ error: err2.message, sql });
+      res.json({ schema: colNames, hashCol, users: rows });
+    });
   });
 });
 
@@ -923,8 +986,10 @@ app.use((err, req, res, next) => {
 });
 
 // ─── START ────────────────────────────────────────────────────────
-seedData();
-
+// Run schema migrations first, then seed data
+runSchemaMigrations(db, () => {
+  seedData();
+});
 app.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('=================================================');
