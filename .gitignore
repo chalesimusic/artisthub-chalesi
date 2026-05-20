@@ -1,0 +1,7 @@
+node_modules/
+data/*.db
+uploads/audio/*
+uploads/video/*
+uploads/thumbnails/*
+*.log
+nohup.out
