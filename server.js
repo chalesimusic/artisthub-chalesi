@@ -18,7 +18,7 @@ const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sqlite3 = require('sqlite3').verbose();
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
@@ -29,6 +29,23 @@ const JWT_SECRET = process.env.JWT_SECRET || 'artisthub-jwt-secret-chalesi-2024'
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'artisthub.db');
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 const RENDER = process.env.RENDER === 'true' || !!process.env.RENDER_EXTERNAL_URL;
+
+// ─── VIDEO JOB QUEUE ────────────────────────────────────────────
+// In-memory store for async video render jobs
+const videoJobs = new Map(); // jobId -> { status, progress, result, error }
+
+function createVideoJob() {
+  const jobId = uuidv4();
+  videoJobs.set(jobId, { status: 'pending', progress: 0, result: null, error: null, createdAt: Date.now() });
+  // Clean up jobs older than 1 hour
+  setTimeout(() => videoJobs.delete(jobId), 3600000);
+  return jobId;
+}
+
+function updateVideoJob(jobId, updates) {
+  const job = videoJobs.get(jobId);
+  if (job) videoJobs.set(jobId, { ...job, ...updates });
+}
 
 // ─── SCHEMA MIGRATION ───────────────────────────────────────────
 // Runs after DB is opened to handle old schemas on persistent disk
@@ -817,83 +834,115 @@ app.post('/api/video/render', (req, res) => {
         const duration = Math.min(audio.duration || maxDur, maxDur);
 
         // Sanitize text for FFmpeg
-        const safe = (s) => (s || '').replace(/'/g, "'\\''").substring(0, 200);
+        const safe = (s) => (s || '').replace(/'/g, "'\\''" ).replace(/[\"\\]/g, '').substring(0, 100);
         const safeScript = safe(script);
         const safeHashtags = safe(hashtags);
         const safeArtist = safe(artist_name || artist?.name);
-        
-        // Check if FFmpeg is available
-        try { execSync('which ffmpeg', { stdio: 'ignore' }); } catch {
-          // No FFmpeg - create a placeholder and return simulated result
-          console.log('FFmpeg not available - creating simulated video');
-          const buf = Buffer.from('RIFF' + String.fromCharCode(0,0,0,0) + 'AVI ');
-          fs.writeFileSync(outputPath, buf);
-          
-          db.run('INSERT INTO posts (artist_id, platform_id, content, hashtags, status, type, video_path, thumbnail_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [artist_id, platform_id, script, hashtags, 'published', 'video', outputPath, thumbnailPath], function(err) {
-              db.run('INSERT INTO credit_transactions (type, amount, description) VALUES (?, ?, ?)',
-                ['video', 50, `Video rendered for ${artist_name}`]);
-              res.json({
-                success: true, videoUrl: `/uploads/video/${outputId}.mp4`,
-                thumbnailUrl: `/uploads/thumbnails/${outputId}.jpg`,
-                duration, postId: this.lastID, platform: platform.name, artist: artist_name,
-                note: 'FFmpeg not available - install FFmpeg for real video rendering'
+
+        // Create async job and return immediately (avoids 30s proxy timeout)
+        const jobId = createVideoJob();
+        res.json({ jobId, status: 'pending', message: 'Video render started. Poll /api/video/job/:jobId for status.' });
+
+        // Run FFmpeg asynchronously in background
+        setImmediate(async () => {
+          updateVideoJob(jobId, { status: 'rendering', progress: 10 });
+
+          // Check if FFmpeg is available
+          let hasFfmpeg = false;
+          try { execSync('which ffmpeg', { stdio: 'ignore' }); hasFfmpeg = true; } catch {}
+
+          if (!hasFfmpeg) {
+            console.log('FFmpeg not available - creating simulated video');
+            const buf = Buffer.from('RIFF' + String.fromCharCode(0,0,0,0) + 'AVI ');
+            fs.writeFileSync(outputPath, buf);
+            db.run('INSERT INTO posts (artist_id, platform_id, content, hashtags, status, type, video_path, thumbnail_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+              [artist_id, platform_id, script, hashtags, 'published', 'video', outputPath, thumbnailPath], function(saveErr) {
+                db.run('INSERT INTO credit_transactions (type, amount, description) VALUES (?, ?, ?)',
+                  ['video', 50, `Video rendered for ${artist_name}`]);
+                updateVideoJob(jobId, {
+                  status: 'complete', progress: 100,
+                  result: {
+                    success: true, videoUrl: `/uploads/video/${outputId}.mp4`,
+                    thumbnailUrl: `/uploads/thumbnails/${outputId}.jpg`,
+                    duration, postId: this.lastID, platform: platform.name, artist: artist_name,
+                    note: 'FFmpeg not available - simulated video'
+                  }
+                });
               });
-            });
-          return;
-        }
+            return;
+          }
 
-        // FFmpeg video rendering
-        const wavePath = path.join(UPLOADS_DIR, 'video', `${outputId}_wave.png`);
-        const fontFile = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
-        const fontFile2 = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
-        
-        // Generate waveform image
-        try {
-          execSync(`ffmpeg -i "${audio.file_path}" -f lavfi -i "color=c=${bgColor.replace('#','0x')}:s=${width}x400:r=30" -filter_complex "[0:a]showfreqs=s=${width}x400:mode=bar:ascale=log:colors=#e2b34b[wave];[1][wave]overlay=0:0" -frames:v 1 -y "${wavePath}" 2>/dev/null`, { timeout: 30000 });
-        } catch { /* optional */ }
+          // FFmpeg video rendering
+          const wavePath = path.join(UPLOADS_DIR, 'video', `${outputId}_wave.png`);
+          const fontFile = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+          const fontFile2 = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+          
+          updateVideoJob(jobId, { progress: 20 });
 
-        // Build video with FFmpeg
-        const filterComplex = `
-          [0:a]afade=t=out:st=${Math.max(0,duration-2)}:d=2[audio];
-          [1:v]scale=${width}:${height}[bg];
-          [bg]drawtext=fontfile=${fontFile}:fontsize=52:fontcolor=white:x=(w-text_w)/2:y=120:text='${safeArtist}':box=0:shadowcolor=black@0.6:shadowx=2:shadowy=2[txt1];
-          [txt1]drawtext=fontfile=${fontFile2}:fontsize=36:fontcolor=white:x=(w-text_w)/2:y=240:text='${safeScript}':box=0:shadowcolor=black@0.5:shadowx=1:shadowy=1:line_spacing=10[txt2];
-          [txt2]drawtext=fontfile=${fontFile2}:fontsize=28:fontcolor=#e2b34b:x=(w-text_w)/2:y=${height-220}:text='${safeHashtags}':box=0[final]
-        `.replace(/\s+/g, ' ').trim();
+          // Generate waveform image (optional, non-blocking)
+          try {
+            execSync(`ffmpeg -i "${audio.file_path}" -f lavfi -i "color=c=${bgColor.replace('#','0x')}:s=${width}x400:r=30" -filter_complex "[0:a]showfreqs=s=${width}x400:mode=bar:ascale=log:colors=#e2b34b[wave];[1][wave]overlay=0:0" -frames:v 1 -y "${wavePath}" 2>/dev/null`, { timeout: 20000 });
+          } catch { /* optional */ }
 
-        try {
-          execSync(`ffmpeg -f lavfi -i "color=c=${bgColor.replace('#','0x')}:s=${width}x${height}:r=30:d=${duration}" -i "${audio.file_path}" -i "${wavePath}" -filter_complex "
+          updateVideoJob(jobId, { progress: 40 });
+
+          // Build main video with FFmpeg
+          const waveInput = fs.existsSync(wavePath) ? `-i "${wavePath}"` : '';
+          const waveFilter = fs.existsSync(wavePath)
+            ? `[2:v]scale=${width}:400[wave];[0:v][wave]overlay=(W-w)/2:(H-h)/2-50:format=auto[bg];`
+            : `[0:v]copy[bg];`;
+          const audioMap = fs.existsSync(wavePath) ? '[1:a]' : '[1:a]';
+          const audioInput = `-i "${audio.file_path}"`;
+
+          const ffmpegCmd = `ffmpeg -f lavfi -i "color=c=${bgColor.replace('#','0x')}:s=${width}x${height}:r=30:d=${duration}" ${audioInput} ${waveInput} -filter_complex "
             [1:a]afade=t=out:st=${Math.max(0,duration-2)}:d=2[audio];
-            [2:v]scale=${width}:400[wave];
-            [0:v][wave]overlay=(W-w)/2:(H-h)/2-50:format=auto[bg];
-            [bg]drawtext=fontfile=${fontFile}:fontsize=52:fontcolor=white:x=(w-text_w)/2:y=120:text='${safeArtist}':shadowcolor=black@0.6:shadowx=2:shadowy=2[txt1];
-            [txt1]drawtext=fontfile=${fontFile2}:fontsize=36:fontcolor=white:x=(w-text_w)/2:y=240:text='${safeScript}':shadowcolor=black@0.5:shadowx=1:shadowy=1:line_spacing=10[txt2];
-            [txt2]drawtext=fontfile=${fontFile2}:fontsize=28:fontcolor=#e2b34b:x=(w-text_w)/2:y=${height-220}:text='${safeHashtags}':box=0[final]
-          " -map "[final]" -map "[audio]" -c:v libx264 -preset ultrafast -crf 28 -c:a aac -b:a 192k -t ${duration} -movflags +faststart -y "${outputPath}" 2>&1`, { timeout: 120000 });
+            ${waveFilter}
+            [bg]drawtext=fontfile='${fontFile}':fontsize=52:fontcolor=white:x=(w-text_w)/2:y=120:text='${safeArtist}':shadowcolor=black@0.6:shadowx=2:shadowy=2[txt1];
+            [txt1]drawtext=fontfile='${fontFile2}':fontsize=36:fontcolor=white:x=(w-text_w)/2:y=240:text='${safeScript}':shadowcolor=black@0.5:shadowx=1:shadowy=1[txt2];
+            [txt2]drawtext=fontfile='${fontFile2}':fontsize=28:fontcolor=#e2b34b:x=(w-text_w)/2:y=${height-220}:text='${safeHashtags}':box=0[final]
+          " -map "[final]" -map "[audio]" -c:v libx264 -preset ultrafast -crf 28 -c:a aac -b:a 192k -t ${duration} -movflags +faststart -y "${outputPath}" 2>&1`;
 
-          // Generate thumbnail
-          try { execSync(`ffmpeg -i "${outputPath}" -ss 00:00:01 -vframes 1 -y "${thumbnailPath}" 2>/dev/null`, { timeout: 15000 }); } catch { /* optional */ }
-        } catch (ffmpegErr) {
-          console.error('FFmpeg error:', ffmpegErr.message);
-          // Create minimal fallback
-          fs.writeFileSync(outputPath, Buffer.alloc(1024));
-        }
+          exec(ffmpegCmd, { timeout: 180000 }, (ffmpegErr, stdout, stderr) => {
+            if (ffmpegErr) {
+              console.error('FFmpeg error:', ffmpegErr.message);
+              // Create minimal fallback so the job still completes
+              fs.writeFileSync(outputPath, Buffer.alloc(1024));
+            }
 
-        // Save post
-        db.run('INSERT INTO posts (artist_id, platform_id, content, hashtags, status, type, video_path, thumbnail_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [artist_id, platform_id, script, hashtags, 'published', 'video', outputPath, thumbnailPath], function(err) {
-            db.run('INSERT INTO credit_transactions (type, amount, description) VALUES (?, ?, ?)',
-              ['video', 50, `Video rendered for ${artist_name}`]);
-            res.json({
-              success: true, videoUrl: `/uploads/video/${outputId}.mp4`,
-              thumbnailUrl: `/uploads/thumbnails/${outputId}.jpg`,
-              duration, postId: this.lastID, platform: platform.name, artist: artist_name
-            });
+            updateVideoJob(jobId, { progress: 85 });
+
+            // Generate thumbnail
+            try { execSync(`ffmpeg -i "${outputPath}" -ss 00:00:01 -vframes 1 -y "${thumbnailPath}" 2>/dev/null`, { timeout: 15000 }); } catch { /* optional */ }
+
+            updateVideoJob(jobId, { progress: 95 });
+
+            // Save post to DB
+            db.run('INSERT INTO posts (artist_id, platform_id, content, hashtags, status, type, video_path, thumbnail_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+              [artist_id, platform_id, script, hashtags, 'published', 'video', outputPath, thumbnailPath], function(saveErr) {
+                db.run('INSERT INTO credit_transactions (type, amount, description) VALUES (?, ?, ?)',
+                  ['video', 50, `Video rendered for ${artist_name}`]);
+                updateVideoJob(jobId, {
+                  status: 'complete', progress: 100,
+                  result: {
+                    success: true, videoUrl: `/uploads/video/${outputId}.mp4`,
+                    thumbnailUrl: `/uploads/thumbnails/${outputId}.jpg`,
+                    duration, postId: this.lastID, platform: platform.name, artist: artist_name
+                  }
+                });
+                console.log(`Video render complete: ${outputId}`);
+              });
           });
+        });
       });
     });
   });
+});
+
+// Poll video render job status
+app.get('/api/video/job/:jobId', (req, res) => {
+  const job = videoJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' });
+  res.json(job);
 });
 
 app.get('/api/video/download/:id', (req, res) => {
