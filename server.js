@@ -539,15 +539,36 @@ app.get('/api/audio', (req, res) => {
 app.post('/api/audio/upload', audioUpload.single('audio'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   const { artist_id, name, duration } = req.body;
+  const trackName = name || req.file.originalname;
   const ext = path.extname(req.file.originalname).toLowerCase().replace('.', '');
+  const fmt = ext === 'mpeg' ? 'mp3' : (ext || 'mp3');
   const waveform = JSON.stringify(Array.from({ length: 80 }, () => Math.random() * 0.8 + 0.1));
-  db.run('INSERT INTO audio_tracks (name, artist_id, file_path, duration, format, size_bytes, waveform_data) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [name || req.file.originalname, artist_id, req.file.path, duration || 180, ext === 'mpeg' ? 'mp3' : ext, req.file.size, waveform], function(err) {
+  // Detect actual columns in audio_tracks to handle old schema (title) vs new schema (name)
+  db.all('PRAGMA table_info(audio_tracks)', [], (err, cols) => {
+    const colNames = cols ? cols.map(c => c.name) : [];
+    const hasName = colNames.includes('name');
+    const hasTitle = colNames.includes('title');
+    let sql, params;
+    if (hasName && hasTitle) {
+      // Both exist — insert into both
+      sql = 'INSERT INTO audio_tracks (name, title, artist_id, file_path, duration, format, size_bytes, waveform_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+      params = [trackName, trackName, artist_id, req.file.path, duration || 180, fmt, req.file.size, waveform];
+    } else if (hasTitle) {
+      // Old schema only has title
+      sql = 'INSERT INTO audio_tracks (title, artist_id, file_path, duration, format, size_bytes, waveform_data) VALUES (?, ?, ?, ?, ?, ?, ?)';
+      params = [trackName, artist_id, req.file.path, duration || 180, fmt, req.file.size, waveform];
+    } else {
+      // New schema with name
+      sql = 'INSERT INTO audio_tracks (name, artist_id, file_path, duration, format, size_bytes, waveform_data) VALUES (?, ?, ?, ?, ?, ?, ?)';
+      params = [trackName, artist_id, req.file.path, duration || 180, fmt, req.file.size, waveform];
+    }
+    db.run(sql, params, function(err) {
       if (err) return res.status(500).json({ error: err.message });
       db.get('SELECT t.*, a.name as artist_name FROM audio_tracks t JOIN artists a ON t.artist_id = a.id WHERE t.id = ?', [this.lastID], (err, track) => {
         res.status(201).json(track);
       });
     });
+  });
 });
 
 app.get('/api/audio/:id', (req, res) => {
