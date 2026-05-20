@@ -119,10 +119,39 @@ db.serialize(() => {
   )`);
 });
 
+// ─── MIGRATE ADMIN USER ──────────────────────────────────────────
+// Ensures the admin user always has a valid bcrypt password_hash.
+// This fixes stale databases where the user was seeded with NULL hash.
+function migrateAdminUser() {
+  const hash = bcrypt.hashSync('Malaven757!!', 10);
+  db.get('SELECT id, password_hash FROM users WHERE email = ?', ['chalesimusic@gmail.com'], (err, user) => {
+    if (err) return;
+    if (!user) {
+      // User doesn't exist at all - insert
+      db.run('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
+        ['chalesimusic@gmail.com', hash, 'Chalesi Admin', 'admin'], () => {
+          console.log('Admin user created: chalesimusic@gmail.com');
+        });
+    } else if (!user.password_hash || user.password_hash === 'null' || user.password_hash.length < 20) {
+      // User exists but has NULL or invalid password_hash - fix it
+      db.run('UPDATE users SET password_hash = ?, name = ?, role = ? WHERE email = ?',
+        [hash, 'Chalesi Admin', 'admin', 'chalesimusic@gmail.com'], () => {
+          console.log('Admin user password_hash migrated successfully');
+        });
+    } else {
+      console.log('Admin user OK: chalesimusic@gmail.com');
+    }
+  });
+}
+
 // ─── SEED DATA ────────────────────────────────────────────────────
 function seedData() {
   db.get('SELECT COUNT(*) as c FROM artists', (err, row) => {
-    if (err || row.c > 0) return;
+    if (err || row.c > 0) {
+      // Artists already seeded - but still ensure admin user is valid
+      migrateAdminUser();
+      return;
+    }
     console.log('Seeding database...');
 
     // Default user: chalesimusic@gmail.com / Malaven757!!
@@ -299,7 +328,10 @@ app.post('/api/auth/register', (req, res) => {
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
   db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
-    if (err || !user || !bcrypt.compareSync(password, user.password_hash)) {
+    if (err || !user || !user.password_hash) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (!bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const token = jwt.sign({ id: user.id, email: user.email, name: user.name, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
