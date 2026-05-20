@@ -67,13 +67,52 @@ function runSchemaMigrations(database, callback) {
   }
 
   // Run all migrations in sequence
+  // Helper: recreate audio_tracks table to fix NOT NULL constraint on 'title' column
+  // SQLite doesn't support ALTER COLUMN to drop constraints, so we must recreate
+  function fixAudioTracksSchema(cb) {
+    database.all('PRAGMA table_info(audio_tracks)', [], (err, cols) => {
+      if (err || !cols || cols.length === 0) return cb(); // table doesn't exist yet
+      // Check if 'title' column has NOT NULL constraint (notnull=1)
+      const titleCol = cols.find(c => c.name === 'title');
+      const nameCol = cols.find(c => c.name === 'name');
+      const needsFix = titleCol && titleCol.notnull === 1 && !nameCol;
+      if (!needsFix) { console.log('audio_tracks schema OK, no recreate needed'); return cb(); }
+      console.log('Recreating audio_tracks table to fix NOT NULL on title...');
+      database.serialize(() => {
+        database.run('BEGIN TRANSACTION');
+        database.run(`CREATE TABLE IF NOT EXISTS audio_tracks_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT,
+          title TEXT,
+          artist_id INTEGER,
+          file_path TEXT,
+          duration REAL DEFAULT 0,
+          format TEXT DEFAULT 'mp3',
+          size_bytes INTEGER DEFAULT 0,
+          waveform_data TEXT,
+          upload_date TEXT DEFAULT (datetime('now'))
+        )`);
+        database.run(`INSERT INTO audio_tracks_new (id, name, title, artist_id, file_path, duration, format, size_bytes, waveform_data, upload_date)
+          SELECT id, COALESCE(title,''), title, artist_id, file_path, COALESCE(duration,0), COALESCE(format,'mp3'), COALESCE(size_bytes,0), waveform_data, COALESCE(upload_date,datetime('now'))
+          FROM audio_tracks`);
+        database.run('DROP TABLE audio_tracks');
+        database.run('ALTER TABLE audio_tracks_new RENAME TO audio_tracks');
+        database.run('COMMIT', (e) => {
+          if (e) { console.error('Failed to recreate audio_tracks:', e.message); }
+          else { console.log('audio_tracks recreated successfully'); }
+          cb();
+        });
+      });
+    });
+  }
+
   const migrations = [
     // users table
     cb => copyColIfMissing('users', 'password', 'password_hash', 'TEXT', cb),
     cb => addColIfMissing('users', 'name', "TEXT NOT NULL DEFAULT 'Admin'", cb),
     cb => addColIfMissing('users', 'role', "TEXT DEFAULT 'admin'", cb),
-    // audio_tracks table — old schema may have used 'title' instead of 'name'
-    cb => copyColIfMissing('audio_tracks', 'title', 'name', 'TEXT', cb),
+    // audio_tracks table — fix NOT NULL constraint on title, then ensure name column
+    cb => fixAudioTracksSchema(cb),
     cb => addColIfMissing('audio_tracks', 'name', 'TEXT', cb),
     cb => addColIfMissing('audio_tracks', 'artist_id', 'INTEGER', cb),
     cb => addColIfMissing('audio_tracks', 'file_path', 'TEXT', cb),
