@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Video Library &mdash; ArtistHub</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    body{background:#f8fafc;color:#1e293b;min-height:100vh}
+    .page{padding:24px 32px;max-width:1400px;margin:0 auto}
+    h1{font-size:1.5rem;font-weight:700;color:#0f172a;margin-bottom:4px}
+    p.sub{color:#64748b;font-size:.875rem;margin-bottom:24px}
+    .card{background:#fff;border-radius:16px;border:1px solid #e2e8f0;padding:20px}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;border:none;transition:all .15s;text-decoration:none}
+    .btn-primary{background:#e2b34b;color:#fff}.btn-primary:hover{background:#c99a35}
+    .btn-secondary{background:#f1f5f9;color:#475569}.btn-secondary:hover{background:#e2e8f0}
+    .btn-sm{padding:5px 10px;font-size:.75rem}
+    .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:9999px;font-size:.75rem;font-weight:600}
+    .badge-green{background:#dcfce7;color:#16a34a}.badge-amber{background:#fef9c3;color:#a16207}.badge-slate{background:#f1f5f9;color:#475569}.badge-blue{background:#dbeafe;color:#1d4ed8}
+    .grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+    @media(max-width:1200px){.grid-5{grid-template-columns:repeat(4,1fr)}}
+    @media(max-width:900px){.grid-5{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:600px){.grid-5{grid-template-columns:repeat(2,1fr)}}
+    .flex{display:flex}.items-center{align-items:center}.justify-between{justify-content:space-between}.gap-3{gap:12px}.gap-2{gap:8px}.flex-wrap{flex-wrap:wrap}
+    .mt-2{margin-top:8px}.mt-4{margin-top:16px}.mb-2{margin-bottom:8px}.mb-4{margin-bottom:16px}
+    .text-sm{font-size:.875rem}.text-xs{font-size:.75rem}.font-semibold{font-weight:600}.font-bold{font-weight:700}
+    .text-slate-500{color:#64748b}.text-slate-700{color:#334155}
+    .video-card{background:#fff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;transition:box-shadow .2s}
+    .video-card:hover{box-shadow:0 8px 24px rgba(0,0,0,.1)}
+    .video-thumb-wrap{position:relative;width:100%;aspect-ratio:9/16;background:#1e293b;cursor:pointer;overflow:hidden}
+    .video-thumb{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s}
+    .video-card:hover .video-thumb{transform:scale(1.03)}
+    .video-thumb-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;background:linear-gradient(135deg,#1e293b,#334155)}
+    .play-btn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s;background:rgba(0,0,0,.3)}
+    .video-thumb-wrap:hover .play-btn{opacity:1}
+    .play-icon{width:48px;height:48px;background:rgba(255,255,255,.9);border-radius:50%;display:flex;align-items:center;justify-content:center}
+    .video-info{padding:12px}
+    .video-title{font-size:.8125rem;font-weight:600;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px}
+    .video-meta{font-size:.75rem;color:#64748b;margin-bottom:8px}
+    .video-actions{display:flex;gap:6px;flex-wrap:wrap}
+    .toast{position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:12px 20px;border-radius:12px;font-size:.875rem;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none}
+    .toast.show{opacity:1}
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center}
+    .modal-overlay.open{display:flex}
+    .modal-box{background:#000;border-radius:16px;width:360px;max-height:90vh;overflow:hidden;position:relative}
+    .modal-close{position:absolute;top:12px;right:12px;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:1.25rem;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10}
+    .filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+    .filter-chip{padding:6px 14px;border-radius:9999px;font-size:.8125rem;font-weight:500;cursor:pointer;border:1.5px solid #e2e8f0;background:#fff;color:#475569;transition:all .15s}
+    .filter-chip.active{border-color:#e2b34b;background:#fef9c3;color:#92400e}
+    .empty-state{text-align:center;padding:60px 20px;color:#64748b}
+    .empty-state .icon{font-size:3rem;margin-bottom:12px}
+    .nav-bar{background:#fff;border-bottom:1px solid #e2e8f0;padding:12px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+    .nav-logo{font-weight:800;font-size:1.125rem;color:#0f172a;display:flex;align-items:center;gap:8px}
+    .nav-links{display:flex;gap:8px}
+    .nav-link{padding:6px 14px;border-radius:8px;font-size:.875rem;font-weight:500;color:#475569;text-decoration:none;transition:all .15s}
+    .nav-link:hover,.nav-link.active{background:#fef9c3;color:#92400e}
+  </style>
+</head>
+<body>
+  <div class="nav-bar">
+    <div class="nav-logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#e2b34b"/><path d="M8 12l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      ArtistHub
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Dashboard</a>
+      <a href="/artists" class="nav-link">Artists</a>
+      <a href="/video" class="nav-link">Video Editor</a>
+      <a href="/video-library" class="nav-link active">Video Library</a>
+      <a href="/schedule" class="nav-link">Schedules</a>
+    </div>
+  </div>
+
+  <div class="page" style="padding-top:24px">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h1>&#127916; Video Library</h1>
+        <p class="sub">All rendered videos with thumbnails, previews, and one-click download</p>
+      </div>
+      <div class="flex gap-3">
+        <a href="/video" class="btn btn-primary">+ Render New Video</a>
+      </div>
+    </div>
+
+    <div id="stats-bar" class="flex gap-3 mb-4"></div>
+
+    <div class="filter-bar">
+      <span class="text-sm font-semibold text-slate-700" style="margin-right:4px">Filter:</span>
+      <div class="filter-chip active" onclick="filterArtist(null,this)">All Artists</div>
+      <div id="artist-filters"></div>
+    </div>
+
+    <div id="video-grid" class="grid-5"></div>
+    <div id="empty-state" class="empty-state" style="display:none">
+      <div class="icon">&#127916;</div>
+      <div style="font-size:1.125rem;font-weight:600;margin-bottom:8px">No videos yet</div>
+      <div style="margin-bottom:16px">Render your first video in the Video Editor</div>
+      <a href="/video" class="btn btn-primary">Go to Video Editor</a>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <!-- Preview Modal -->
+    <div id="preview-modal" class="modal-overlay" onclick="if(event.target===this)closePreview()">
+      <div class="modal-box">
+        <button class="modal-close" onclick="closePreview()">&times;</button>
+        <video id="preview-video" controls style="width:100%;display:block" playsinline></video>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = '/api';
+let allVideos = [], filteredArtistId = null;
+
+async function load() {
+  try {
+    const r = await fetch(API + '/videos');
+    const d = await r.json();
+    allVideos = d.videos || [];
+    renderStatsBar();
+    renderArtistFilters();
+    renderGrid();
+  } catch(e) {
+    console.error(e);
+    document.getElementById('empty-state').style.display = 'block';
+  }
+}
+
+function renderStatsBar() {
+  const total = allVideos.length;
+  const artists = [...new Set(allVideos.map(function(v){ return v.artist_name; }))].length;
+  const totalSize = allVideos.reduce(function(a,v){ return a + (v.file_size || 0); }, 0);
+  const sizeMB = (totalSize / 1024 / 1024).toFixed(1);
+  const items = [
+    { label: 'Total Videos', value: total, icon: '&#127916;' },
+    { label: 'Artists', value: artists, icon: '&#127911;' },
+    { label: 'Storage Used', value: sizeMB + ' MB', icon: '&#128190;' }
+  ];
+  document.getElementById('stats-bar').innerHTML = items.map(function(s){
+    return '<div class="card flex items-center gap-3" style="padding:12px 16px"><span style="font-size:1.25rem">' + s.icon + '</span><div><div style="font-size:1.125rem;font-weight:700;color:#0f172a">' + s.value + '</div><div class="text-xs text-slate-500">' + s.label + '</div></div></div>';
+  }).join('');
+}
+
+function renderArtistFilters() {
+  const artistNames = [...new Set(allVideos.map(function(v){ return v.artist_name; }))].filter(Boolean);
+  document.getElementById('artist-filters').innerHTML = artistNames.map(function(name){
+    return '<div class="filter-chip" onclick="filterArtist(\'' + name.replace(/'/g,"\\'") + '\',this)">' + name + '</div>';
+  }).join('');
+}
+
+function filterArtist(name, el) {
+  filteredArtistId = name;
+  document.querySelectorAll('.filter-chip').forEach(function(c){ c.classList.remove('active'); });
+  el.classList.add('active');
+  renderGrid();
+}
+
+function renderGrid() {
+  const videos = filteredArtistId
+    ? allVideos.filter(function(v){ return v.artist_name === filteredArtistId; })
+    : allVideos;
+
+  if (videos.length === 0) {
+    document.getElementById('video-grid').innerHTML = '';
+    document.getElementById('empty-state').style.display = 'block';
+    return;
+  }
+  document.getElementById('empty-state').style.display = 'none';
+
+  document.getElementById('video-grid').innerHTML = videos.map(function(v) {
+    const thumbHtml = v.thumbnail_url
+      ? '<img class="video-thumb" src="' + v.thumbnail_url + '" alt="' + v.name + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+        '<div class="video-thumb-placeholder" style="display:none">&#127916;</div>'
+      : '<div class="video-thumb-placeholder">&#127916;</div>';
+
+    const platformBadge = v.platform ? '<span class="badge badge-blue">' + v.platform + '</span>' : '';
+    const durationStr = v.duration ? formatDuration(v.duration) : '';
+    const dateStr = v.created_at ? new Date(v.created_at).toLocaleDateString() : '';
+
+    return '<div class="video-card">' +
+      '<div class="video-thumb-wrap" onclick="previewVideo(\'' + v.video_url + '\')">' +
+        thumbHtml +
+        '<div class="play-btn"><div class="play-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="#e2b34b"><path d="M8 5v14l11-7z"/></svg></div></div>' +
+      '</div>' +
+      '<div class="video-info">' +
+        '<div class="video-title" title="' + (v.name||'') + '">' + (v.name || 'Untitled') + '</div>' +
+        '<div class="video-meta">' + (v.artist_name || '') + (durationStr ? ' &middot; ' + durationStr : '') + (dateStr ? ' &middot; ' + dateStr : '') + '</div>' +
+        '<div class="flex gap-2 mb-2">' + platformBadge + '</div>' +
+        '<div class="video-actions">' +
+          '<a href="' + v.video_url + '" download class="btn btn-primary btn-sm">&#11015; Download</a>' +
+          '<button onclick="schedulePost(' + v.id + ')" class="btn btn-secondary btn-sm">&#128467; Schedule</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function formatDuration(secs) {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+function previewVideo(url) {
+  if (!url) return;
+  document.getElementById('preview-video').src = url;
+  document.getElementById('preview-modal').classList.add('open');
+}
+function closePreview() {
+  document.getElementById('preview-modal').classList.remove('open');
+  document.getElementById('preview-video').src = '';
+}
+
+async function schedulePost(videoId) {
+  const date = prompt('Schedule date and time (YYYY-MM-DD HH:MM):');
+  if (!date) return;
+  const token = localStorage.getItem('artisthub_token') || '';
+  try {
+    await fetch(API + '/posts/' + videoId, {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'scheduled', scheduled_date: new Date(date).toISOString() })
+    });
+    showToast('Post scheduled!');
+  } catch(e) { showToast('Error: ' + e.message, true); }
+}
+
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = err ? '#dc2626' : '#1e293b';
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Artist Schedules &mdash; ArtistHub</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    body{background:#f8fafc;color:#1e293b;min-height:100vh}
+    .page{padding:24px 32px;max-width:1200px;margin:0 auto}
+    h1{font-size:1.5rem;font-weight:700;color:#0f172a;margin-bottom:4px}
+    p.sub{color:#64748b;font-size:.875rem;margin-bottom:24px}
+    .card{background:#fff;border-radius:16px;border:1px solid #e2e8f0;padding:20px}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:.875rem;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+    .btn-primary{background:#e2b34b;color:#fff}.btn-primary:hover{background:#c99a35}
+    .btn-secondary{background:#f1f5f9;color:#475569}.btn-secondary:hover{background:#e2e8f0}
+    .btn-danger{background:#fee2e2;color:#dc2626}.btn-danger:hover{background:#fecaca}
+    .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:9999px;font-size:.75rem;font-weight:600}
+    .badge-green{background:#dcfce7;color:#16a34a}.badge-amber{background:#fef9c3;color:#a16207}.badge-slate{background:#f1f5f9;color:#475569}
+    input,select,textarea{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;font-size:.875rem;outline:none;transition:border .15s}
+    input:focus,select:focus,textarea:focus{border-color:#e2b34b;box-shadow:0 0 0 3px rgba(226,179,75,.15)}
+    label{display:block;font-size:.8125rem;font-weight:500;color:#374151;margin-bottom:4px}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+    @media(max-width:768px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}}
+    .flex{display:flex}.items-center{align-items:center}.justify-between{justify-content:space-between}.gap-3{gap:12px}.gap-4{gap:16px}
+    .mt-4{margin-top:16px}.mt-6{margin-top:24px}.mb-2{margin-bottom:8px}.mb-4{margin-bottom:16px}
+    .text-sm{font-size:.875rem}.text-xs{font-size:.75rem}.font-semibold{font-weight:600}.font-bold{font-weight:700}
+    .text-slate-500{color:#64748b}.text-slate-700{color:#334155}.text-amber-600{color:#d97706}
+    .avatar{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.875rem;flex-shrink:0}
+    .tag{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:.75rem;font-weight:500;cursor:pointer;border:2px solid transparent;transition:all .15s}
+    .tag.active{border-color:#e2b34b;background:#fef9c3;color:#92400e}
+    .tag.inactive{border-color:#e2e8f0;background:#f8fafc;color:#64748b}
+    .tag:hover{border-color:#e2b34b}
+    .toast{position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:12px 20px;border-radius:12px;font-size:.875rem;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none}
+    .toast.show{opacity:1}
+    .day-pill{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;font-size:.8125rem;font-weight:600;cursor:pointer;border:2px solid transparent;transition:all .15s}
+    .day-pill.active{background:#e2b34b;color:#fff;border-color:#e2b34b}
+    .day-pill.inactive{background:#f1f5f9;color:#64748b;border-color:#e2e8f0}
+    .day-pill:hover:not(.active){border-color:#e2b34b;background:#fef9c3;color:#92400e}
+    .divider{height:1px;background:#f1f5f9;margin:12px 0}
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center}
+    .modal-overlay.open{display:flex}
+    .modal-box{background:#fff;border-radius:20px;width:520px;max-height:90vh;overflow-y:auto;padding:24px;position:relative}
+    .nav-bar{background:#fff;border-bottom:1px solid #e2e8f0;padding:12px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+    .nav-logo{font-weight:800;font-size:1.125rem;color:#0f172a;display:flex;align-items:center;gap:8px}
+    .nav-links{display:flex;gap:8px}
+    .nav-link{padding:6px 14px;border-radius:8px;font-size:.875rem;font-weight:500;color:#475569;text-decoration:none;transition:all .15s}
+    .nav-link:hover,.nav-link.active{background:#fef9c3;color:#92400e}
+  </style>
+</head>
+<body>
+  <div class="nav-bar">
+    <div class="nav-logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#e2b34b"/><path d="M8 12l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      ArtistHub
+    </div>
+    <div class="nav-links">
+      <a href="/" class="nav-link">Dashboard</a>
+      <a href="/artists" class="nav-link">Artists</a>
+      <a href="/video" class="nav-link">Video Editor</a>
+      <a href="/video-library" class="nav-link">Video Library</a>
+      <a href="/schedule" class="nav-link active">Schedules</a>
+    </div>
+  </div>
+
+  <div class="page" style="padding-top:24px">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h1>&#128467; Artist Posting Schedules</h1>
+        <p class="sub">Configure per-artist posting frequency, days, and times &mdash; minimum 3 posts/day across all platforms</p>
+      </div>
+      <div class="flex gap-3">
+        <button class="btn btn-primary" onclick="bulkInit()">&#9889; Auto-Init All Artists</button>
+      </div>
+    </div>
+
+    <div id="stats" class="grid-4 mb-4"></div>
+    <div id="artists-grid" class="grid-2"></div>
+    <div id="toast" class="toast"></div>
+
+    <!-- Edit Modal -->
+    <div id="modal" class="modal-overlay">
+      <div class="modal-box">
+        <div class="flex items-center justify-between mb-4">
+          <h2 id="modal-title" style="font-size:1.125rem;font-weight:700"></h2>
+          <button onclick="closeModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#64748b">&times;</button>
+        </div>
+        <div id="modal-body"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = '/api';
+let artists = [], schedules = [], platforms = [];
+const DAY_NAMES = ['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const TZ_OPTIONS = ['America/New_York','America/Los_Angeles','America/Chicago','Europe/London','Europe/Paris','Australia/Sydney','Asia/Tokyo'];
+
+async function load() {
+  try {
+    const [ar, sc, pl] = await Promise.all([
+      fetch(API + '/artists').then(r => r.json()),
+      fetch(API + '/schedules').then(r => r.json()),
+      fetch(API + '/platforms').then(r => r.json())
+    ]);
+    artists = ar.artists || ar || [];
+    schedules = sc.schedules || [];
+    platforms = pl.platforms || pl || [];
+    renderStats();
+    renderArtists();
+  } catch(e) { console.error(e); }
+}
+
+function renderStats() {
+  const total = artists.length;
+  const configured = schedules.length;
+  const autoEnabled = schedules.filter(function(s){ return s.auto_schedule; }).length;
+  const totalPostsPerDay = schedules.reduce(function(a,s){ return a + (s.posts_per_day || 3); }, 0);
+  const items = [
+    { label: 'Total Artists', value: total, bg: '#4a52e318', icon: '&#127911;' },
+    { label: 'Schedules Configured', value: configured + '/' + total, bg: '#10b98118', icon: '&#9989;' },
+    { label: 'Auto-Schedule On', value: autoEnabled, bg: '#e2b34b18', icon: '&#9889;' },
+    { label: 'Posts/Day (Total)', value: totalPostsPerDay, bg: '#8b5cf618', icon: '&#128202;' }
+  ];
+  document.getElementById('stats').innerHTML = items.map(function(s){
+    return '<div class="card flex items-center gap-3"><div style="width:40px;height:40px;border-radius:12px;background:' + s.bg + ';display:flex;align-items:center;justify-content:center;font-size:1.25rem;flex-shrink:0">' + s.icon + '</div><div><div style="font-size:1.25rem;font-weight:700;color:#0f172a">' + s.value + '</div><div class="text-xs text-slate-500">' + s.label + '</div></div></div>';
+  }).join('');
+}
+
+function getSchedule(artistId) {
+  return schedules.find(function(s){ return s.artist_id == artistId; }) || { days_of_week: [1,2,3,4,5], post_times: ['09:00','13:00','19:00'], posts_per_day: 3, auto_schedule: true, timezone: 'America/New_York', platforms: [] };
+}
+
+function renderArtists() {
+  document.getElementById('artists-grid').innerHTML = artists.map(function(a) {
+    const s = getSchedule(a.id);
+    const days = s.days_of_week || [1,2,3,4,5];
+    const times = s.post_times || ['09:00','13:00','19:00'];
+    const hasSchedule = schedules.some(function(sc){ return sc.artist_id == a.id; });
+    const dayPills = [1,2,3,4,5,6,7].map(function(d){
+      return '<div class="day-pill ' + (days.indexOf(d) >= 0 ? 'active' : 'inactive') + '">' + DAY_NAMES[d] + '</div>';
+    }).join('');
+    return '<div class="card">' +
+      '<div class="flex items-center justify-between mb-4">' +
+        '<div class="flex items-center gap-3">' +
+          '<div class="avatar" style="background:' + (a.avatar_color||'#e2b34b') + '">' + a.name.charAt(0) + '</div>' +
+          '<div><div class="font-semibold" style="color:#0f172a">' + a.name + '</div><div class="text-xs text-slate-500">' + a.genre + '</div></div>' +
+        '</div>' +
+        '<div class="flex items-center gap-2">' +
+          '<span class="badge ' + (hasSchedule ? 'badge-green' : 'badge-slate') + '">' + (hasSchedule ? '&#10003; Configured' : 'Default') + '</span>' +
+          '<button class="btn btn-primary" onclick="editSchedule(' + a.id + ')" style="padding:6px 12px;font-size:.75rem">Edit</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="divider"></div>' +
+      '<div class="flex gap-2 mb-3">' + dayPills + '</div>' +
+      '<div class="flex items-center justify-between text-sm">' +
+        '<span class="text-slate-500">Times: <strong>' + times.join(' &middot; ') + '</strong></span>' +
+        '<span class="text-slate-500">' + (s.posts_per_day || 3) + ' posts/day</span>' +
+      '</div>' +
+      '<div class="flex items-center justify-between text-xs text-slate-500 mt-2">' +
+        '<span>TZ: ' + (s.timezone || 'America/New_York') + '</span>' +
+        '<span class="badge ' + (s.auto_schedule ? 'badge-green' : 'badge-slate') + '">' + (s.auto_schedule ? '&#9889; Auto' : '&#9208; Manual') + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function editSchedule(artistId) {
+  const artist = artists.find(function(a){ return a.id == artistId; });
+  const s = getSchedule(artistId);
+  document.getElementById('modal-title').textContent = 'Edit Schedule \u2014 ' + artist.name;
+  const days = s.days_of_week || [1,2,3,4,5];
+  const times = s.post_times || ['09:00','13:00','19:00'];
+  const tz = s.timezone || 'America/New_York';
+  const dayPills = [1,2,3,4,5,6,7].map(function(d){
+    return '<div class="day-pill ' + (days.indexOf(d) >= 0 ? 'active' : 'inactive') + '" onclick="toggleDay(' + d + ',this)" data-day="' + d + '">' + DAY_NAMES[d] + '</div>';
+  }).join('');
+  const timesHtml = times.map(function(t,i){
+    return '<div class="flex gap-2 mt-2"><input type="time" value="' + t + '" class="post-time" style="flex:1"><button onclick="this.parentNode.remove()" class="btn btn-danger" style="padding:6px 10px;flex-shrink:0">&times;</button></div>';
+  }).join('');
+  const tzOptions = TZ_OPTIONS.map(function(t){
+    return '<option' + (t === tz ? ' selected' : '') + '>' + t + '</option>';
+  }).join('');
+  const platformTags = platforms.map(function(p){
+    const active = (s.platforms || []).indexOf(p.id) >= 0;
+    return '<div class="tag ' + (active ? 'active' : 'inactive') + '" onclick="togglePlatform(' + p.id + ',this)" data-pid="' + p.id + '">' + p.name + '</div>';
+  }).join('');
+  document.getElementById('modal-body').innerHTML =
+    '<div class="mb-4"><label>Active Days</label><div class="flex gap-2 mt-2" id="day-pills">' + dayPills + '</div></div>' +
+    '<div class="mb-4"><label>Posting Times (minimum 3 per day)</label><div id="times-list">' + timesHtml + '</div><button class="btn btn-secondary mt-2" onclick="addTime()">+ Add Time</button></div>' +
+    '<div class="grid-2 mb-4"><div><label>Posts Per Day</label><input type="number" id="ppd" value="' + (s.posts_per_day||3) + '" min="1" max="10"></div><div><label>Timezone</label><select id="tz">' + tzOptions + '</select></div></div>' +
+    '<div class="mb-4"><label>Platforms</label><div class="flex gap-2 flex-wrap mt-2" id="platform-tags">' + platformTags + '</div></div>' +
+    '<div class="flex items-center gap-3 mb-4"><input type="checkbox" id="auto-sched"' + (s.auto_schedule ? ' checked' : '') + ' style="width:auto"><label for="auto-sched" style="margin:0">Enable Auto-Scheduling</label></div>' +
+    '<div class="flex gap-3 justify-end"><button class="btn btn-secondary" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveSchedule(' + artistId + ')">Save Schedule</button></div>';
+  document.getElementById('modal').classList.add('open');
+}
+
+function toggleDay(d, el) {
+  el.classList.toggle('active');
+  el.classList.toggle('inactive');
+}
+function addTime() {
+  const div = document.createElement('div');
+  div.className = 'flex gap-2 mt-2';
+  div.innerHTML = '<input type="time" value="12:00" class="post-time" style="flex:1"><button onclick="this.parentNode.remove()" class="btn btn-danger" style="padding:6px 10px;flex-shrink:0">&times;</button>';
+  document.getElementById('times-list').appendChild(div);
+}
+function togglePlatform(pid, el) {
+  el.classList.toggle('active');
+  el.classList.toggle('inactive');
+}
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+async function saveSchedule(artistId) {
+  const days = Array.from(document.querySelectorAll('#day-pills .day-pill.active')).map(function(el){ return parseInt(el.dataset.day); });
+  const times = Array.from(document.querySelectorAll('.post-time')).map(function(el){ return el.value; }).filter(Boolean);
+  const ppd = parseInt(document.getElementById('ppd').value) || 3;
+  const tz = document.getElementById('tz').value;
+  const auto = document.getElementById('auto-sched').checked;
+  const pids = Array.from(document.querySelectorAll('#platform-tags .tag.active')).map(function(el){ return parseInt(el.dataset.pid); });
+  const token = localStorage.getItem('artisthub_token') || '';
+  try {
+    await fetch(API + '/schedules/' + artistId, {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days_of_week: days, post_times: times, posts_per_day: ppd, timezone: tz, auto_schedule: auto, platforms: pids })
+    });
+    closeModal();
+    showToast('Schedule saved!');
+    await load();
+  } catch(e) { showToast('Error: ' + e.message, true); }
+}
+
+async function bulkInit() {
+  const token = localStorage.getItem('artisthub_token') || '';
+  try {
+    const r = await fetch(API + '/schedules/bulk-init', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+    const d = await r.json();
+    showToast('Initialized ' + d.initialized + ' artist schedules!');
+    await load();
+  } catch(e) { showToast('Error: ' + e.message, true); }
+}
+
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = err ? '#dc2626' : '#1e293b';
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+
+load();
+</script>
+</body>
+</html>
